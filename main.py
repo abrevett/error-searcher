@@ -90,8 +90,8 @@ def main():
     user = input("Enter StackExchange query terms: ")
     regex_str = input("Search Regex of your error: ")
 
-    
-    regex = re.compile( r".*" + regex_str + r".*")
+    # TODO: create regex series to add ranking weight
+    regex = re.compile( r".*" + regex_str + r".*", flags=re.I)
 
 #    result = stackx_run(user.strip())
 #    with open("result_dump.json", "w+") as jsdump:
@@ -104,15 +104,19 @@ def main():
     
     # We now iterate through each response and search for our regex pattern
     relevant = []
+    i=0
     for forum in result.keys():
         site = result[forum]
         for page in site.values():
             items = page["items"]
             for item in items:
-                if regex.match(item["body"]):
+                i += 1
+                if regex.search(item["body"]):
+#                    print(item["question_id"])
                     relevant.append(item)
 
-    print(len(relevant))
+    print( "relevant: " + str(len(relevant)) )
+    print( "total: " + str(i) )
 
 
 #    urls = {}
