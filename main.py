@@ -3,6 +3,7 @@ from bs4 import BeautifulSoup       # BeautifulSoup import
 import requests                     # Import for StackExchange use
 import json
 import re
+import itertools
 
 STACKX_SITES = {}
 
@@ -85,55 +86,74 @@ def stackx_run(query):
 
     return resp
 
+def regex_weights(regex):
+    # Split on GNU error standards
+    regex_tok = regex.split(r": ")
+    count_delim = (len(regex_tok)-1)*2
+    if(count_delim < 0):
+        return None
+    # we now calculate the weights for each regex token:
+    weight_d = float( len(regex) - count_delim )
+    weights = [ len(tok)/weight_d for tok in regex_tok ]
+    # and now the weights for each regex combination:
+    combos = list()
+    for i in range( len(regex_tok)+1 ):
+        combos += list(itertools.combinations(regex_tok, i))
+    combos.remove( () )
+
+    # We create a mapping from regex to scoring weight
+    weight_map = {}
+    for comb in combos:
+        weight_sum = 0
+        for c in comb:
+            ind = regex_tok.index(c)
+            weight_sum += weights[ind]
+        weight_map[': '.join(comb)] = weight_sum
+    return weight_map
+
+
+
+
 def main():
     # Gather query terms and regex patterns:
     user = input("Enter StackExchange query terms: ")
     regex_str = input("Search Regex of your error: ")
 
-    # TODO: create regex series to add ranking weight
-    regex = re.compile( r".*" + regex_str + r".*", flags=re.I)
+    # Created mapping from regex combinations to relative weights
+    mapping = regex_weights(regex_str)
 
-#    result = stackx_run(user.strip())
-#    with open("result_dump.json", "w+") as jsdump:
-#        jsdump.write( json.dumps(result, indent=2) )
-#    print("results written to result_dump.json")
+    mapping_ind = [ rx for rx in mapping.keys() ]
+    regexs = [ re.compile( r".*" + rx + r".*", flags=re.I) for rx in mapping_ind ]
 
-    result = {}
-    with open("result_dump.json", "r") as jsdump:
-        result = json.loads(jsdump.read())
+    result = stackx_run(user.strip())
+    with open("result_dump.json", "w+") as jsdump:
+        jsdump.write( json.dumps(result, indent=2) )
+    print("results written to result_dump.json")
+
+#    result = {}
+#    with open("result_dump.json", "r") as jsdump:
+#        result = json.loads(jsdump.read())
     
     # We now iterate through each response and search for our regex pattern
     relevant = []
-    i=0
     for forum in result.keys():
         site = result[forum]
         for page in site.values():
             items = page["items"]
             for item in items:
-                i += 1
-                if regex.search(item["body"]):
-#                    print(item["question_id"])
+                i=0
+                weight=0
+                for regex in regexs:
+                    if regex.search(item["body"]) and mapping[mapping_ind[i]] > weight:
+                        weight = mapping[mapping_ind[i]]
+                    item["weight"] = weight
                     relevant.append(item)
-
-    print( "relevant: " + str(len(relevant)) )
-    print( "total: " + str(i) )
-
-
-#    urls = {}
-#    for item in result.values():
-#        items = item["items"]
-#        i=0
-#        for r in items:
-#            urls[i] = { "link": r["link"], "question_id": r["question_id"] }
-#            i +=1
-
-#    regex = r'[a-z]'
-#    # Use BeautifulSoup to iterate over links
-#    for url in urls.values():
-#        link = url["link"]
-#        html = requests.get( link ).text
-#        soup = BeautifulSoup(html, "html.parser")
-#        match = print(soup.body.get_text("\n"))
-
+                    i += 1
+    
+    relevant = [ it for it in relevant if it["weight"] > 0.3 ]
+    relevant.sort( key=lambda x: x["weight"])
+    rel_links = set([ it["link"] for it in relevant ])
+    print(rel_links)
+    print( "StackExchange: " + str(len(rel_links)) )
 
 main()
