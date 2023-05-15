@@ -2,8 +2,16 @@ from serpapi import GoogleSearch    # SerpAPI import
 from bs4 import BeautifulSoup       # BeautifulSoup import
 import requests                     # Import for StackExchange use
 import json
+import re
 
 STACKX_SITES = {}
+
+stackx_query = {
+    "pagesize": 100, # Maximum Size per page
+    "order": "desc",
+    "sort": "activity",
+    "filter": "!.kZ-f.vMXeIXqR48NteY"
+}
 
 def serp_search():
     key = ""
@@ -45,35 +53,87 @@ def init_stackx():
         return None
     STACKX_SITES = req.json()
 
-def stackx_search():
-
-    payload = {
-        "site": "unix",
-        "q": "alpine linux",
-#        "body": "",
-        "pagesize": 100, # Maximum Size per page
-        "order": "desc",
-        "sort": "activity"
-    }
+def stackx_search(payload: dict) -> dict:
     req = requests.get("https://api.stackexchange.com/2.3/search/advanced", params=payload)
     print(req.url)
-    if(req.status_code != 200):
+    if(req.status_code != requests.codes.ok):
         print("ERROR: Status code " + str(req.status_code) )
         print( req.json() )
         return None
     return req.json()
 
+def stackx_run(query):
+    key = ""
+    with open("stackx.key", "r") as keyfile:
+        key = keyfile.read().strip()
+    forums = [ "serverfault", "stackoverflow", "unix", "askubuntu", "superuser" ]
+    resp = {}
+    for site in forums:
+        pagenum = 1
+        payload = dict(stackx_query) 
+        payload.update({"key": key, "page": pagenum, "q": query, "site": site})
+        print(stackx_query)
+        print(payload)
+        resp[site] = {}
 
-#result = google_search()
-#print(result)
+        resp[site][pagenum] = stackx_search(payload)
+        while( resp[site][pagenum]["has_more"] == True ):
+            print("getting more!")
+            pagenum += 1
+            payload.update({ "page": pagenum })
+            resp[site][pagenum] = stackx_search(payload)
 
-#print("\n\n")
+    return resp
 
-#result = serp_search()
-#organic = result["organic_results"]
+def main():
+    # Gather query terms and regex patterns:
+    user = input("Enter StackExchange query terms: ")
+    regex_str = input("Search Regex of your error: ")
 
-#init_stackx()
-result = stackx_search()
+    # TODO: create regex series to add ranking weight
+    regex = re.compile( r".*" + regex_str + r".*", flags=re.I)
 
-if(result): 
-    printJSON( result["items"] )
+#    result = stackx_run(user.strip())
+#    with open("result_dump.json", "w+") as jsdump:
+#        jsdump.write( json.dumps(result, indent=2) )
+#    print("results written to result_dump.json")
+
+    result = {}
+    with open("result_dump.json", "r") as jsdump:
+        result = json.loads(jsdump.read())
+    
+    # We now iterate through each response and search for our regex pattern
+    relevant = []
+    i=0
+    for forum in result.keys():
+        site = result[forum]
+        for page in site.values():
+            items = page["items"]
+            for item in items:
+                i += 1
+                if regex.search(item["body"]):
+#                    print(item["question_id"])
+                    relevant.append(item)
+
+    print( "relevant: " + str(len(relevant)) )
+    print( "total: " + str(i) )
+
+
+#    urls = {}
+#    for item in result.values():
+#        items = item["items"]
+#        i=0
+#        for r in items:
+#            urls[i] = { "link": r["link"], "question_id": r["question_id"] }
+#            i +=1
+
+#    regex = r'[a-z]'
+#    # Use BeautifulSoup to iterate over links
+#    for url in urls.values():
+#        link = url["link"]
+#        html = requests.get( link ).text
+#        soup = BeautifulSoup(html, "html.parser")
+#        match = print(soup.body.get_text("\n"))
+
+
+main()
